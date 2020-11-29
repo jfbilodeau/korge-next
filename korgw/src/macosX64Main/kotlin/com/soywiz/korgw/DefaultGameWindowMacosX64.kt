@@ -20,6 +20,7 @@ import platform.CoreGraphics.*
 import platform.CoreVideo.*
 import platform.Foundation.*
 import platform.darwin.*
+import kotlin.coroutines.*
 import kotlin.native.concurrent.AtomicInt
 
 private fun ByteArray.toNsData(): NSData {
@@ -33,7 +34,16 @@ private fun ByteArray.toNsData(): NSData {
 
 val frameRequestNumber = AtomicInt(0)
 
-actual fun CreateDefaultGameWindow(): GameWindow = object : GameWindow(), DoRenderizable {
+actual fun CreateDefaultGameWindow(): GameWindow = MacosGameWindow()
+
+@ThreadLocal
+var globalLastMacosGameWindow: MacosGameWindow? = null
+
+class MacosGameWindow : GameWindow(), DoRenderizable {
+    init {
+        globalLastMacosGameWindow = this
+    }
+
     val gameWindow = this
     val gameWindowStableRef = StableRef.create(gameWindow)
     val app = NSApplication.sharedApplication()
@@ -82,138 +92,27 @@ actual fun CreateDefaultGameWindow(): GameWindow = object : GameWindow(), DoRend
         )
     }
 
-    private val openglView: NSOpenGLView = NSOpenGLView(NSMakeRect(0.0, 0.0, 16.0, 16.0), pixelFormat)
     var timer: NSTimer? = null
 
-    private var responder: NSResponder
-
-    private val window: NSWindow = NSWindow(windowRect, windowStyle, NSBackingStoreBuffered, false).apply {
-        setIsVisible(false)
-        title = windowConfigTitle
-        opaque = true
-        hasShadow = true
-        preferredBackingLocation = NSWindowBackingLocationVideoMemory
-        hidesOnDeactivate = false
-        releasedWhenClosed = false
-
-        openglView.setFrame(contentRectForFrameRect(frame))
-        delegate = object : NSObject(), NSWindowDelegateProtocol {
-            override fun windowShouldClose(sender: NSWindow): Boolean {
-                //println("windowShouldClose")
-                return true
-            }
-
-            override fun windowWillClose(notification: NSNotification) {
-                //println("windowWillClose")
-            }
-
-            override fun windowDidResize(notification: NSNotification) {
-                doWindowDidResize()
-            }
+    val windowDelegate: NSWindowDelegateProtocol = object : NSObject(), NSWindowDelegateProtocol {
+        override fun windowShouldClose(sender: NSWindow): Boolean {
+            //println("windowShouldClose")
+            return true
         }
 
-        setAcceptsMouseMovedEvents(true)
-        setContentView(openglView)
-        setContentMinSize(NSMakeSize(150.0, 100.0))
-        responder = object : NSResponder() {
-            override fun acceptsFirstResponder(): Boolean = true
-
-            fun getHeight() = openglView.bounds.height
-
-            override fun mouseUp(event: NSEvent) {
-                //super.mouseUp(event)
-                val rx = event.locationInWindow.x.toInt()
-                val ry = (getHeight() - event.locationInWindow.y).toInt()
-                //println("mouseUp($rx,$ry)")
-                val x = rx
-                val y = ry
-                val button = event.buttonNumber.toInt()
-
-                mouseEvent(MouseEvent.Type.UP, x, y, button, event)
-                mouseEvent(MouseEvent.Type.CLICK, x, y, button, event) // @TODO: Conditionally depending on the down x,y & time
-            }
-
-            override fun mouseDown(event: NSEvent) {
-                //super.mouseDown(event)
-                val rx = event.locationInWindow.x.toInt()
-                val ry = (getHeight() - event.locationInWindow.y).toInt()
-                //println("mouseDown($rx,$ry)")
-                mouseEvent(MouseEvent.Type.DOWN, rx, ry, event.buttonNumber.toInt(), event)
-            }
-
-            override fun mouseMoved(event: NSEvent) {
-                //super.mouseMoved(event)
-                val rx = event.locationInWindow.x.toInt()
-                val ry = (getHeight() - event.locationInWindow.y).toInt()
-                //println("mouseMoved($rx,$ry)")
-                mouseEvent(MouseEvent.Type.MOVE, rx, ry, 0, event)
-            }
-
-            private fun mouseEvent(etype: MouseEvent.Type, ex: Int, ey: Int, ebutton: Int, e: NSEvent) {
-                val factor = backingScaleFactor
-                val sx = ex * factor
-                val sy = ey * factor
-
-                dispatchMouseEvent(
-                    id = 0,
-                    type = etype,
-                    x = sx.toInt(),
-                    y = sy.toInt(),
-                    button = MouseButton[ebutton],
-                    buttons = e.buttonMask.toInt(),
-                    isShiftDown = e.shift, isCtrlDown = e.ctrl, isAltDown = e.alt, isMetaDown = e.meta
-                )
-            }
-
-            override fun mouseDragged(event: NSEvent) {
-                super.mouseDragged(event)
-                val rx = event.locationInWindow.x.toInt()
-                val ry = (getHeight() - event.locationInWindow.y).toInt()
-                //println("mouseDragged($rx,$ry)")
-                mouseEvent(MouseEvent.Type.DRAG, rx, ry, 0, event)
-            }
-
-            fun keyDownUp(event: NSEvent, pressed: Boolean, e: NSEvent) {
-                val str = event.charactersIgnoringModifiers ?: "\u0000"
-                val c = str.getOrNull(0) ?: '\u0000'
-                val cc = c.toInt().toChar()
-                //println("keyDownUp")
-                val char = cc
-                val keyCode = event.keyCode.toInt()
-
-                val key = KeyCodesToKeys[keyCode] ?: CharToKeys[char] ?: Key.UNKNOWN
-                //println("keyDownUp: char=$char, keyCode=${keyCode.toInt()}, key=$key, pressed=$pressed, shift=${e.shift}, ctrl=${e.ctrl}, alt=${e.alt}, meta=${e.meta}")
-                dispatchKeyEventEx(
-                    type = if (pressed) KeyEvent.Type.DOWN else KeyEvent.Type.UP,
-                    id = 0,
-                    character = char,
-                    key = key,
-                    keyCode = keyCode,
-                    shift = e.shift,
-                    ctrl = e.ctrl,
-                    alt = e.alt,
-                    meta = e.meta
-                )
-            }
-
-            override fun keyDown(event: NSEvent) {
-                //super.keyDown(event)
-                keyDownUp(event, true, event)
-            }
-
-            override fun keyUp(event: NSEvent) {
-                //super.keyUp(event)
-                keyDownUp(event, false, event)
-            }
-
-            //external override fun performKeyEquivalent(event: NSEvent): Boolean {
-            //    return true
-            //}
+        override fun windowWillClose(notification: NSNotification) {
+            //println("windowWillClose")
         }
-        openglView.setNextResponder(responder)
-        setNextResponder(responder)
-        setIsVisible(false)
+
+        override fun windowDidResize(notification: NSNotification) {
+            doWindowDidResize()
+        }
+
+
     }
+    val windowResponder = MacWindowResponder(this)
+    val window: NSWindow = NSWindow(windowRect, windowStyle, NSBackingStoreBuffered, false)
+    val openglView: NSOpenGLView = NSOpenGLView(NSMakeRect(0.0, 0.0, 16.0, 16.0), pixelFormat)
 
     private fun doWindowDidResize() {
         //println("windowDidResize")
@@ -229,8 +128,8 @@ actual fun CreateDefaultGameWindow(): GameWindow = object : GameWindow(), DoRend
     }
 
     @Suppress("RemoveRedundantCallsOfConversionMethods")
-    private val backingScaleFactor: Double get() = window.backingScaleFactor.toDouble()
-    private var lastBackingScaleFactor = 0.0
+    val backingScaleFactor: Double get() = window.backingScaleFactor.toDouble()
+    var lastBackingScaleFactor = 0.0
 
     override fun doRenderRequest() {
         //dispatch_async(dispatch_get_main_queue(), ::doRender)
@@ -278,39 +177,47 @@ actual fun CreateDefaultGameWindow(): GameWindow = object : GameWindow(), DoRend
     override val height: Int get() = openglView.bounds.height.toInt()
 
     override var title: String = ""
-        set(value) {
-            field = value
-            window.title = value
-        }
+    set(value) {
+        field = value
+        window.title = value
+    }
 
     override var icon: Bitmap? = null
-        set(value) {
-            field = value
-            if (value != null) {
-                app.setApplicationIconImage(NSImage(data = PNG.encode(value).toNsData()))
-            }
+    set(value) {
+        field = value
+        if (value != null) {
+            app.setApplicationIconImage(NSImage(data = PNG.encode(value).toNsData()))
         }
+    }
     override var fullscreen: Boolean
-        get() = (window.styleMask and NSFullScreenWindowMask) == NSFullScreenWindowMask
-        set(value) {
-            if (fullscreen != value) {
-                window.toggleFullScreen(window)
-            }
+    get() = (window.styleMask and NSFullScreenWindowMask) == NSFullScreenWindowMask
+    set(value) {
+        if (fullscreen != value) {
+            window.toggleFullScreen(window)
         }
+    }
+    private var responderDidSet = false
     override var visible: Boolean
-        get() = window.visible
-        set(value) {
-            window.setIsVisible(value)
-            if (value) {
-                window.makeKeyAndOrderFront(this)
+    get() = window.visible
+    set(value) {
+        window.setIsVisible(value)
+        if (value) {
+            window.makeKeyAndOrderFront(this)
+            if (!responderDidSet) {
+                responderDidSet = true
+                //openglView.setNextResponder(windowResponder)
+                //window.setNextResponder(windowResponder)
+                //openglView.setNextResponder(windowResponder)
+                window.makeFirstResponder(windowResponder)
             }
-            //if (value) {
-            //    window.makeKeyAndOrderFront(this)
-            //    app.activateIgnoringOtherApps(true)
-            //} else {
-            //    window.orderOut(this)
-            //}
         }
+        //if (value) {
+        //    window.makeKeyAndOrderFront(this)
+        //    app.activateIgnoringOtherApps(true)
+        //} else {
+        //    window.orderOut(this)
+        //}
+    }
 
     override fun setSize(width: Int, height: Int) {
         //val frame = NSScreen.mainScreen()!!.frame
@@ -359,120 +266,267 @@ actual fun CreateDefaultGameWindow(): GameWindow = object : GameWindow(), DoRend
         window.close()
     }
 
+    lateinit var gwdelegate: GameWindowApplicationDelegate
+
     override suspend fun loop(entry: suspend GameWindow.() -> Unit) = autoreleasepool {
-        val agNativeComponent = Any()
-        val ag: AG = AGOpenglFactory.create(agNativeComponent).create(agNativeComponent, AGConfig())
+        gwdelegate = GameWindowApplicationDelegate(
+            app,
+            coroutineContext,
+            controller,
+            entry,
+            openglView,
+            this,
+        )
 
-        val ccontext = kotlin.coroutines.coroutineContext
-        app.delegate = object : NSObject(), NSApplicationDelegateProtocol {
-
-            //private val openglView: AppNSOpenGLView
-
-            override fun applicationShouldTerminateAfterLastWindowClosed(app: NSApplication): Boolean {
-                //println("applicationShouldTerminateAfterLastWindowClosed")
-                return true
-            }
-
-            override fun applicationWillFinishLaunching(notification: NSNotification) {
-                //println("applicationWillFinishLaunching")
-                //window.makeKeyAndOrderFront(this)
-            }
-
-            override fun applicationDidFinishLaunching(notification: NSNotification) {
-                //val data = decodeImageData(readBytes("icon.jpg"))
-                //println("${data.width}, ${data.height}")
-                app.mainMenu = NSMenu().apply {
-                    //this.autoenablesItems = true
-                    addItem(NSMenuItem("Application", null, "").apply {
-                        this.submenu = NSMenu().apply {
-                            //this.autoenablesItems = true
-                            addItem(NSMenuItem("Quit", NSSelectorFromString(WinController::doTerminate.name), "q").apply {
-                                target = controller
-                                //enabled = true
-                            })
-                        }
-                        //enabled = true
-                    })
-                }
-
-                app.setActivationPolicy(NSApplicationActivationPolicy.NSApplicationActivationPolicyRegular)
-                app.activateIgnoringOtherApps(true)
-
-                openglView.openGLContext?.makeCurrentContext()
-                try {
-                    macTrace("init[a] -- bb")
-                    macTrace("init[b]")
-                    //println("KoruiWrap.pentry[0]")
-                    //launch(KoruiDispatcher) { // Doesn't work!
-                    //println("KoruiWrap.pentry[1]")
-                    //println("KoruiWrap.entry[0]")
-                    kotlinx.coroutines.GlobalScope.launch(getCoroutineDispatcherWithCurrentContext(ccontext)) {
-                        entry()
-                    }
-                    //println("KoruiWrap.entry[1]")
-                    //}
-                    //println("KoruiWrap.pentry[2]")
-
-                    doRender()
-                    val useDisplayLink = Environment["MACOS_USE_DISPLAY_LINK"] != "false"
-                    when {
-                        useDisplayLink -> {
-                            createDisplayLink()
-                            timer = NSTimer.scheduledTimerWithTimeInterval(1.0 / 480.0, true, ::timerDisplayLink)
-                        }
-                        else -> {
-                            timer = NSTimer.scheduledTimerWithTimeInterval(1.0 / 60.0, true, ::timer)
-                        }
-                    }
-
-                } catch (e: Throwable) {
-                    e.printStackTrace()
-                    window.close()
-                }
-            }
-
-            val arena = Arena()
-            val displayLink = arena.alloc<CVDisplayLinkRefVar>()
-
-            fun createDisplayLink() {
-                //println("createDisplayLink[1]")
-                val displayID = CGMainDisplayID()
-                val error = CVDisplayLinkCreateWithCGDisplay(displayID, displayLink.ptr)
-                //println("createDisplayLink[2]")
-                if (error == kCVReturnSuccess) {
-                    //println("createDisplayLink[3]")
-
-                    CVDisplayLinkSetOutputCallback(displayLink.value, staticCFunction(::displayCallback), gameWindowStableRef.asCPointer())
-                    CVDisplayLinkStart(displayLink.value)
-                    //println("createDisplayLink[4]")
-                }
-                //println("createDisplayLink[5]")
-            }
-
-            var displayedFrame = -1
-            fun timerDisplayLink(timer: NSTimer?) {
-                val frameRequest = frameRequestNumber.value
-                if (displayedFrame != frameRequest) {
-                    displayedFrame = frameRequest
-                    doRender()
-                }
-            }
-
-            // public typealias CVDisplayLinkOutputCallback = CPointer<CFunction<(CVDisplayLinkRef?, CPointer<CVTimeStamp>?, CPointer<CVTimeStamp>?, CVOptionFlags, CPointer<CVOptionFlagsVar>?, COpaquePointer?) -> platform.CoreVideo.CVReturn>>
-
-            private fun timer(timer: NSTimer?) {
-                //println("TIMER")
-                doRender()
-            }
-
-            override fun applicationWillTerminate(notification: NSNotification) {
-                //println("applicationWillTerminate")
-                // Insert code here to tear down your application
-            }
-        }
+        app.delegate = gwdelegate
 
         coroutineDispatcher.executePending(1.seconds)
         app.run()
+    }
+
+    init {
+        window.setIsVisible(false)
+        window.title = windowConfigTitle
+        window.opaque = true
+        window.hasShadow = true
+        window.preferredBackingLocation = NSWindowBackingLocationVideoMemory
+        window.hidesOnDeactivate = false
+        window.releasedWhenClosed = false
+
+        openglView.setFrame(window.contentRectForFrameRect(window.frame))
+        window.delegate = windowDelegate
+
+        window.setAcceptsMouseMovedEvents(true)
+        window.setContentView(openglView)
+        window.setContentMinSize(NSMakeSize(150.0, 100.0))
+
+        window.setIsVisible(false)
+    }
+}
+
+class MacWindowResponder(val gw: MacosGameWindow) : NSResponder() {
+    override fun acceptsFirstResponder(): Boolean = true
+
+    fun getHeight() = gw.openglView.bounds.height
+
+
+
+    override fun mouseUp(event: NSEvent) {
+        //super.mouseUp(event)
+        val rx = event.locationInWindow.x.toInt()
+        val ry = (getHeight() - event.locationInWindow.y).toInt()
+        //println("mouseUp($rx,$ry)")
+        val x = rx
+        val y = ry
+        val button = event.buttonNumber.toInt()
+
+        mouseEvent(MouseEvent.Type.UP, x, y, button, event)
+        mouseEvent(MouseEvent.Type.CLICK, x, y, button, event) // @TODO: Conditionally depending on the down x,y & time
+    }
+
+    override fun mouseDown(event: NSEvent) {
+        //super.mouseDown(event)
+        val rx = event.locationInWindow.x.toInt()
+        val ry = (getHeight() - event.locationInWindow.y).toInt()
+        //println("mouseDown($rx,$ry)")
+        mouseEvent(MouseEvent.Type.DOWN, rx, ry, event.buttonNumber.toInt(), event)
+    }
+
+    override fun mouseMoved(event: NSEvent) {
+        println("mouseMoved[0]")
+        //super.mouseMoved(event)
+        val rx = event.locationInWindow.x.toInt()
+        val ry = (getHeight() - event.locationInWindow.y).toInt()
+        println("mouseMoved[1]")
+        //println("mouseMoved($rx,$ry)")
+        mouseEvent(MouseEvent.Type.MOVE, rx, ry, 0, event)
+    }
+
+    private fun mouseEvent(etype: MouseEvent.Type, ex: Int, ey: Int, ebutton: Int, e: NSEvent) {
+        val factor = gw.backingScaleFactor
+        val sx = ex * factor
+        val sy = ey * factor
+
+        gw.dispatchMouseEvent(
+            id = 0,
+            type = etype,
+            x = sx.toInt(),
+            y = sy.toInt(),
+            button = MouseButton[ebutton],
+            buttons = e.buttonMask.toInt(),
+            isShiftDown = e.shift, isCtrlDown = e.ctrl, isAltDown = e.alt, isMetaDown = e.meta
+        )
+    }
+
+    override fun mouseDragged(event: NSEvent) {
+        super.mouseDragged(event)
+        val rx = event.locationInWindow.x.toInt()
+        val ry = (getHeight() - event.locationInWindow.y).toInt()
+        //println("mouseDragged($rx,$ry)")
+        mouseEvent(MouseEvent.Type.DRAG, rx, ry, 0, event)
+    }
+
+    fun keyDownUp(event: NSEvent, pressed: Boolean, e: NSEvent) {
+        val str = event.charactersIgnoringModifiers ?: "\u0000"
+        val c = str.getOrNull(0) ?: '\u0000'
+        val cc = c.toInt().toChar()
+        //println("keyDownUp")
+        val char = cc
+        val keyCode = event.keyCode.toInt()
+
+        val key = KeyCodesToKeys[keyCode] ?: CharToKeys[char] ?: Key.UNKNOWN
+        //println("keyDownUp: char=$char, keyCode=${keyCode.toInt()}, key=$key, pressed=$pressed, shift=${e.shift}, ctrl=${e.ctrl}, alt=${e.alt}, meta=${e.meta}")
+        gw.dispatchKeyEventEx(
+            type = if (pressed) KeyEvent.Type.DOWN else KeyEvent.Type.UP,
+            id = 0,
+            character = char,
+            key = key,
+            keyCode = keyCode,
+            shift = e.shift,
+            ctrl = e.ctrl,
+            alt = e.alt,
+            meta = e.meta
+        )
+    }
+
+    override fun keyDown(event: NSEvent) {
+        //super.keyDown(event)
+        keyDownUp(event, true, event)
+    }
+
+    override fun keyUp(event: NSEvent) {
+        //super.keyUp(event)
+        keyDownUp(event, false, event)
+    }
+
+    //external override fun performKeyEquivalent(event: NSEvent): Boolean {
+    //    return true
+    //}
+}
+
+class GameWindowApplicationDelegate(
+    val app: NSApplication,
+    val ccontext: CoroutineContext,
+    val controller: WinController,
+    val entry: suspend GameWindow.() -> Unit,
+    val openglView: NSOpenGLView,
+    val gw: MacosGameWindow,
+) : NSObject(), NSApplicationDelegateProtocol {
+    val agNativeComponent = Any()
+    val ag: AG = AGOpenglFactory.create(agNativeComponent).create(agNativeComponent, AGConfig())
+
+    //private val openglView: AppNSOpenGLView
+
+    override fun applicationShouldTerminateAfterLastWindowClosed(app: NSApplication): Boolean {
+        //println("applicationShouldTerminateAfterLastWindowClosed")
+        return true
+    }
+
+    override fun applicationWillFinishLaunching(notification: NSNotification) {
+        //println("applicationWillFinishLaunching")
+        //window.makeKeyAndOrderFront(this)
+    }
+
+    private lateinit var mainMenu: NSMenu
+    private lateinit var mainMenuSubmenu: NSMenu
+    private lateinit var entryCoroutineContext: CoroutineContext
+
+    override fun applicationDidFinishLaunching(notification: NSNotification) {
+        //val data = decodeImageData(readBytes("icon.jpg"))
+        //println("${data.width}, ${data.height}")
+        mainMenu = NSMenu().apply {
+            //this.autoenablesItems = true
+            addItem(NSMenuItem("Application", null, "").apply {
+                mainMenuSubmenu = NSMenu().apply {
+                    //this.autoenablesItems = true
+                    addItem(NSMenuItem("Quit", NSSelectorFromString(WinController::doTerminate.name), "q").apply {
+                        target = controller
+                        //enabled = true
+                    })
+                }
+                this.submenu = mainMenuSubmenu
+                //enabled = true
+            })
+        }
+        app.mainMenu = mainMenu
+
+        app.setActivationPolicy(NSApplicationActivationPolicy.NSApplicationActivationPolicyRegular)
+        app.activateIgnoringOtherApps(true)
+
+        openglView.openGLContext?.makeCurrentContext()
+        try {
+            macTrace("init[a] -- bb")
+            macTrace("init[b]")
+            //println("KoruiWrap.pentry[0]")
+            //launch(KoruiDispatcher) { // Doesn't work!
+            //println("KoruiWrap.pentry[1]")
+            //println("KoruiWrap.entry[0]")
+            entryCoroutineContext = gw.getCoroutineDispatcherWithCurrentContext(ccontext)
+            kotlinx.coroutines.GlobalScope.launch(entryCoroutineContext) {
+                entry(gw)
+            }
+            //println("KoruiWrap.entry[1]")
+            //}
+            //println("KoruiWrap.pentry[2]")
+
+            gw.doRender()
+            val useDisplayLink = Environment["MACOS_USE_DISPLAY_LINK"] != "false"
+            when {
+                useDisplayLink -> {
+                    createDisplayLink()
+                    gw.timer = NSTimer.scheduledTimerWithTimeInterval(1.0 / 480.0, true, timerDisplayLinkRef)
+                }
+                else -> {
+                    gw.timer = NSTimer.scheduledTimerWithTimeInterval(1.0 / 60.0, true, timerRef)
+                }
+            }
+
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            gw.close()
+        }
+    }
+
+    val timerDisplayLinkRef: (platform.Foundation.NSTimer?) -> kotlin.Unit = ::timerDisplayLink
+    val timerRef: (platform.Foundation.NSTimer?) -> kotlin.Unit = ::timer
+
+    val arena = Arena()
+    val displayLink = arena.alloc<CVDisplayLinkRefVar>()
+
+    fun createDisplayLink() {
+        //println("createDisplayLink[1]")
+        val displayID = CGMainDisplayID()
+        val error = CVDisplayLinkCreateWithCGDisplay(displayID, displayLink.ptr)
+        //println("createDisplayLink[2]")
+        if (error == kCVReturnSuccess) {
+            //println("createDisplayLink[3]")
+
+            CVDisplayLinkSetOutputCallback(displayLink.value, staticCFunction(::displayCallback), gw.gameWindowStableRef.asCPointer())
+            CVDisplayLinkStart(displayLink.value)
+            //println("createDisplayLink[4]")
+        }
+        //println("createDisplayLink[5]")
+    }
+
+    var displayedFrame = -1
+    fun timerDisplayLink(timer: NSTimer?) {
+        val frameRequest = frameRequestNumber.value
+        if (displayedFrame != frameRequest) {
+            displayedFrame = frameRequest
+            gw.doRender()
+        }
+    }
+
+    // public typealias CVDisplayLinkOutputCallback = CPointer<CFunction<(CVDisplayLinkRef?, CPointer<CVTimeStamp>?, CPointer<CVTimeStamp>?, CVOptionFlags, CPointer<CVOptionFlagsVar>?, COpaquePointer?) -> platform.CoreVideo.CVReturn>>
+
+    private fun timer(timer: NSTimer?) {
+        //println("TIMER")
+        gw.doRender()
+    }
+
+    override fun applicationWillTerminate(notification: NSNotification) {
+        //println("applicationWillTerminate")
+        // Insert code here to tear down your application
     }
 }
 
