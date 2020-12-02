@@ -39,9 +39,15 @@ actual fun CreateDefaultGameWindow(): GameWindow = MacosGameWindow()
 @ThreadLocal
 var globalLastMacosGameWindow: MacosGameWindow? = null
 
+@ThreadLocal
+var globalLastMacosGameWindowStableRef: StableRef<MacosGameWindow>? = null
+
 class MacosGameWindow : GameWindow(), DoRenderizable {
     init {
+        println("MacosGameWindow.globalLastMacosGameWindow = this")
         globalLastMacosGameWindow = this
+        println("MacosGameWindow.globalLastMacosGameWindowStableRef = StableRef.create(this)")
+        globalLastMacosGameWindowStableRef = StableRef.create(this)
     }
 
     val gameWindow = this
@@ -304,7 +310,20 @@ class MacosGameWindow : GameWindow(), DoRenderizable {
     }
 }
 
+@ThreadLocal
+var globalLastMacWindowResponder: MacWindowResponder? = null
+
+@ThreadLocal
+var globalLastMacWindowResponderStableRef: StableRef<MacWindowResponder>? = null
+
 class MacWindowResponder(val gw: MacosGameWindow) : NSResponder() {
+    init {
+        println("MacWindowResponder.globalLastMacWindowResponder = this")
+        globalLastMacWindowResponder = this
+        println("MacWindowResponder.globalLastMacWindowResponderStableRef = StableRef.create(this)")
+        globalLastMacWindowResponderStableRef = StableRef.create(this)
+    }
+
     override fun acceptsFirstResponder(): Boolean = true
 
     fun getHeight() = gw.openglView.bounds.height
