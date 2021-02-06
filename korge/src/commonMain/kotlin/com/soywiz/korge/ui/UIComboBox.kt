@@ -71,6 +71,8 @@ open class UIComboBox<T>(
 
     fun open() {
         addChild(itemsView)
+        // Prevent overlap by other controls.
+        parent?.sendChildToFront(this)
     }
 
     fun close() {
