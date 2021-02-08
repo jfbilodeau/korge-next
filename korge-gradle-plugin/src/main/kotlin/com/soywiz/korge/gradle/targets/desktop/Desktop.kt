@@ -56,7 +56,7 @@ val Project.prepareKotlinNativeBootstrap: Task get() = tasks.createOnce("prepare
     }
 }
 
-fun Project.configureNativeDesktop() {
+fun Project.configureNativeDesktop(isLibrary: Boolean) {
 	val project = this
 
     /*
@@ -98,28 +98,31 @@ fun Project.configureNativeDesktop() {
 	//project.afterEvaluate {}
 
 
-	afterEvaluate {
-		//for (target in listOf(kotlin.macosX64(), kotlin.linuxX64(), kotlin.mingwX64(), kotlin.iosX64(), kotlin.iosArm64())) {
+    if (!isLibrary) {
+        afterEvaluate {
+            //for (target in listOf(kotlin.macosX64(), kotlin.linuxX64(), kotlin.mingwX64(), kotlin.iosX64(), kotlin.iosArm64())) {
 
-		for (target in when {
-			isWindows -> listOf(kotlin.mingwX64())
-			isMacos -> listOf(kotlin.macosX64())
-			isLinux -> listOf(kotlin.linuxX64())
-			else -> listOf(kotlin.macosX64(), kotlin.linuxX64(), kotlin.mingwX64())
-		}) {
-			val mainCompilation = target.compilations["main"]
-			//println("TARGET: $target")
-			//println(this.binariesTaskName)
-			for (type in listOf(NativeBuildType.DEBUG, NativeBuildType.RELEASE)) {
-				mainCompilation.getCompileTask(NativeOutputKind.EXECUTABLE, type, project).dependsOn(prepareKotlinNativeBootstrap)
-			}
-			//println("File(buildDir, \"platforms/native-desktop\"): ${File(buildDir, "platforms/native-desktop")}")
+            for (target in when {
+                isWindows -> listOf(kotlin.mingwX64())
+                isMacos -> listOf(kotlin.macosX64())
+                isLinux -> listOf(kotlin.linuxX64())
+                else -> listOf(kotlin.macosX64(), kotlin.linuxX64(), kotlin.mingwX64())
+            }) {
+                val mainCompilation = target.compilations["main"]
+                //println("TARGET: $target")
+                //println(this.binariesTaskName)
+                for (type in listOf(NativeBuildType.DEBUG, NativeBuildType.RELEASE)) {
+                    mainCompilation.getCompileTask(NativeOutputKind.EXECUTABLE, type, project)
+                        .dependsOn(prepareKotlinNativeBootstrap)
+                }
+                //println("File(buildDir, \"platforms/native-desktop\"): ${File(buildDir, "platforms/native-desktop")}")
 
-			//mainCompilation.defaultSourceSet.kotlin.srcDir(File(buildDir, "platforms/native-desktop"))
-			mainCompilation.defaultSourceSet.kotlin.srcDir(project.file("build/platforms/native-desktop/"))
+                //mainCompilation.defaultSourceSet.kotlin.srcDir(File(buildDir, "platforms/native-desktop"))
+                mainCompilation.defaultSourceSet.kotlin.srcDir(project.file("build/platforms/native-desktop/"))
 
-		}
-	}
+            }
+        }
+    }
 
 	project.afterEvaluate {
 		for (target in DESKTOP_NATIVE_TARGETS) {

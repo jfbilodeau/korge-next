@@ -125,9 +125,9 @@ class KorgeExtension(val project: Project) {
      * - linuxX64
      * - macosX64
      */
-    fun targetDesktop() {
+    fun targetDesktop(isLibrary: Boolean = false) {
         target("desktop") {
-            project.configureNativeDesktop()
+            project.configureNativeDesktop(isLibrary)
         }
     }
 
